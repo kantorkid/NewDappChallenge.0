@@ -1,32 +1,34 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.4;
+pragma solidity ^0.8.0;
 
-import "hardhat/console.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 
 // Interface for ERC20 WETH contract
 interface WETH {
-    function approve(address, uint256) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
 
-    function transfer(address, uint256) external returns (bool);
+    function transfer(address recipient, uint256 amount) external returns (bool);
 
-    function transferFrom(address, address, uint256) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
 
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 }
 
-// Interface for Compound's cWETH contract
+// Interfaces for Compound's cWETH contract and Aave's aWETH contract
 interface cWETH {
-    function mint(uint256) external returns (uint256);
+    function mint(uint256 mintAmount) external returns (uint256);
 
-    function redeem(uint256) external returns (uint256);
+    function redeem(uint256 redeemTokens) external returns (uint256);
 
     function supplyRatePerBlock() external returns (uint256);
 
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 interface aWETH {
-    function balanceOf(address) external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 // Interface for Aave's lending pool contract
@@ -63,20 +65,19 @@ interface AaveLendingPool {
 }
 
 contract Aggregator {
+    using SafeMath for uint256;
+
     // Variables
     string public name = "Yield Aggregator";
     address public owner;
     address public locationOfFunds; // Keep track of where the user balance is stored
     uint256 public amountDeposited;
 
-    // Define WETH contract
-    WETH weth = WETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    // Define cWETH contract from Compound
-    cWETH cWeth = cWETH(0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5);
-    // Define aWETH contract from Aave
-    aWETH aWeth = aWETH(0x030bA81f1c18d280636F32af80b9AAd02Cf0854e);
-    // Define Aave lending pool
-    AaveLendingPool aaveLendingPool = AaveLendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9);
+    WETH weth = WETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // WETH contract address
+    cWETH cWeth = cWETH(0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5); // cWETH contract address
+    aWETH aWeth = aWETH(0x030bA81f1c18d280636F32af80b9AAd02Cf0854e); // aWETH contract address
+    AaveLendingPool aaveLendingPool =
+        AaveLendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9);
 
     // Events
     event Deposit(address owner, uint256 amount, address depositTo);
@@ -89,56 +90,53 @@ contract Aggregator {
     }
 
     // Constructor
-    constructor(address _owner) {
-        owner = _owner;
-        console.log("Constructor initialized with owner: %s", owner);
+    constructor() {
+        owner = msg.sender;
     }
 
     // Functions
+
     function deposit(
         uint256 _amount,
         uint256 _compAPY,
         uint256 _aaveAPY
     ) public onlyOwner {
-        console.log(
-            "Depositing %s tokens with Compound APY: %s and Aave APY: %s",
-            _amount,
-            _compAPY,
-            _aaveAPY
-        );
-        require(_amount > 0, "Amount must be greater than 0.");
+        require(_amount > 0, "Deposit amount must be greater than zero.");
 
+        // Rebalance in the case of a protocol with the higher rate after their initial deposit,
+        // is no longer the higher interest rate during this deposit...
         if (amountDeposited > 0) {
-            console.log("Rebalancing before depositing");
             rebalance(_compAPY, _aaveAPY);
         }
 
-        console.log("Transfering tokens from %s to the contract", msg.sender);
         weth.transferFrom(msg.sender, address(this), _amount);
-        amountDeposited = amountDeposited + _amount;
+        amountDeposited = amountDeposited.add(_amount);
 
+        // Compare interest rates
         if (_compAPY > _aaveAPY) {
-            console.log("Depositing to Compound");
-            require(_depositToCompound(_amount) == 0, "Deposit to Compound failed.");
+            // Deposit into Compound
+            require(_depositToCompound(_amount) == 0, "Failed to deposit into Compound.");
 
+            // Update location
             locationOfFunds = address(cWeth);
         } else {
-            console.log("Depositing to Aave");
+            // Deposit into Aave
             _depositToAave(_amount);
 
+            // Update location
             locationOfFunds = address(aaveLendingPool);
         }
 
+        // Emit Deposit event
         emit Deposit(msg.sender, _amount, locationOfFunds);
     }
 
     function withdraw() public onlyOwner {
-        console.log("Entering withdraw function");
-        require(amountDeposited > 0, "No funds to withdraw.");
+        require(amountDeposited > 0, "No funds available for withdrawal.");
 
         // Determine where the user funds are stored
         if (locationOfFunds == address(cWeth)) {
-            require(_withdrawFromCompound() == 0, "Withdraw from Compound failed.");
+            require(_withdrawFromCompound() == 0, "Failed to withdraw from Compound.");
         } else {
             // Withdraw from Aave
             _withdrawFromAave();
@@ -155,13 +153,8 @@ contract Aggregator {
     }
 
     function rebalance(uint256 _compAPY, uint256 _aaveAPY) public onlyOwner {
-        console.log(
-            "Entering rebalance function with Compound APY: %s and Aave APY: %s",
-            _compAPY,
-            _aaveAPY
-        );
         // Make sure funds are already deposited...
-        require(amountDeposited > 0, "No funds to rebalance.");
+        require(amountDeposited > 0, "No funds available for rebalance.");
 
         uint256 balance;
 
@@ -180,7 +173,10 @@ contract Aggregator {
             locationOfFunds = address(cWeth);
 
             emit Rebalance(msg.sender, amountDeposited, locationOfFunds);
-        } else if ((_aaveAPY > _compAPY) && (locationOfFunds != address(aaveLendingPool))) {
+        } else if (
+            (_aaveAPY > _compAPY) &&
+            (locationOfFunds != address(aaveLendingPool))
+        ) {
             // If aaveRate is greater than compoundRate, and the current
             // location of user funds is not in aave, then we transfer funds.
 
@@ -197,41 +193,26 @@ contract Aggregator {
         }
     }
 
-    function _depositToCompound(uint256 _amount) private returns (uint) {
-        console.log("Approving Compound to spend tokens");
-        // Approve Compound cToken contract to move your DAI
-        weth.approve(address(cWeth), _amount);
+    function _depositToCompound(uint256 _amount) internal returns (uint256) {
+        require(weth.approve(address(cWeth), _amount), "Failed to approve WETH for Compound.");
 
-        console.log("Minting cTokens");
-        // Mint cTokens
-        return cWeth.mint(_amount);
+        uint256 result = cWeth.mint(_amount);
+        return result;
     }
 
     function _withdrawFromCompound() internal returns (uint256) {
         uint256 balance = cWeth.balanceOf(address(this));
-
-        console.log("Withdrawing from Compound:", balance);
-
         uint256 result = cWeth.redeem(balance);
         return result;
     }
 
-    function _depositToAave(uint256 _amount) private {
-        console.log("Approving Aave to spend tokens");
-        // Approve Aave LendingPool contract to move your DAI
-        weth.approve(address(aaveLendingPool), _amount);
-
-        console.log("Depositing to Aave");
-        // Call deposit function on Aave LendingPool
+    function _depositToAave(uint256 _amount) internal {
+        require(weth.approve(address(aaveLendingPool), _amount), "Failed to approve WETH for Aave.");
         aaveLendingPool.deposit(address(weth), _amount, address(this), 0);
     }
 
     function _withdrawFromAave() internal {
-        console.log("Entering _withdrawFromAave function");
         uint256 balance = aWeth.balanceOf(address(this));
-
-        console.log("Withdrawing from Aave:", balance);
-
         aaveLendingPool.withdraw(address(weth), balance, address(this));
     }
 

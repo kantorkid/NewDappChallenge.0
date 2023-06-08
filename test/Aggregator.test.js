@@ -1,103 +1,194 @@
-// test/DAIBalance.test.js
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
-
-// Import the IERC20 interface from OpenZeppelin Contracts
-const { utils } = ethers;
-const { BigNumber } = ethers;
-const IERC20 = require("@openzeppelin/contracts/build/contracts/IERC20.json");
-
-describe("DAI Balance", function () {
-  it("Should have the right DAI balance", async function () {
-    const DAI_ADDRESS = "0x6b175474e89094c44da98b954eedeac495271d0f"; // DAI token address on Ethereum mainnet
-    const signer = (await ethers.getSigners())[0];
-    const address = await signer.getAddress();
-    const daiToken = await ethers.getContractAt(IERC20.abi, DAI_ADDRESS);
-    const balance = await daiToken.balanceOf(address);
-    console.log("DAI balance:", balance.toString());
-
-    // Add an assertion here if you want to check the balance
-    // expect(balance).to.equal(BigNumber.from("100"));
-  });
-});
-
-describe("WETH Balance", function () {
-  it("Should have the right WETH balance", async function () {
-    const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // WETH token address on Ethereum mainnet
-    const signer = (await ethers.getSigners())[0];
-    const address = await signer.getAddress();
-    const wethToken = await ethers.getContractAt(IERC20.abi, WETH_ADDRESS);
-    const balance = await wethToken.balanceOf(address);
-    console.log("WETH balance:", balance.toString());
-
-    // Add an assertion here if you want to check the balance
-    // expect(balance).to.equal(BigNumber.from("100"));
-  });
-});
-
-describe("ETH Balance", function () {
-  it("Should have the right ETH balance", async function () {
-    const signer = (await ethers.getSigners())[0];
-    const address = await signer.getAddress();
-    const balance = await ethers.provider.getBalance(address);
-    console.log("ETH balance:", balance.toString());
-
-    // Add an assertion here if you want to check the balance
-    // expect(balance).to.equal(expectedBalance);
-  });
-});
 
 describe("Aggregator", function () {
   let Aggregator;
   let aggregator;
+  let weth;
+  let cWETH;
+  let aWETH;
+  let aaveLendingPool;
+
   let owner;
-  let anotherAccount;
+  let user2;
 
   beforeEach(async function () {
     Aggregator = await ethers.getContractFactory("Aggregator");
 
-    [owner, anotherAccount] = await ethers.getSigners();
+    [owner, user2] = await ethers.getSigners();
 
-    // Deploy the contract from owner account
-    aggregator = await Aggregator.connect(owner).deploy(owner.address);
+    weth = await ethers.getContractAt(
+      "WETH",
+      "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    ); // Replace with the deployed WETH contract address
+    cWETH = await ethers.getContractAt(
+      "cWETH",
+      "0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5"
+    ); // Replace with the deployed cWETH contract address
+    aWETH = await ethers.getContractAt(
+      "aWETH",
+      "0x030bA81f1c18d280636F32af80b9AAd02Cf0854e"
+    ); // Replace with the deployed aWETH contract address
+    AaveLendingPool = await ethers.getContractAt(
+      "AaveLendingPool",
+      "0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9"
+    ); // Replace with the deployed aave Lending Pool contract address
+
+    aggregator = await Aggregator.deploy();
     await aggregator.deployed();
   });
 
-  describe("Deployment", function () {
-    it("Should set the right owner", async function () {
-      const actualOwner = await aggregator.owner();
-      expect(actualOwner).to.equal(owner.address);
+  describe("deployment", function () {
+    it("passes the smoke test", async function () {
+      expect(await aggregator.name()).to.equal("Yield Aggregator");
     });
   });
 
-  describe("Transactions", function () {
-    it("Should deposit WETH to the right platform", async function () {
-      const amount = ethers.utils.parseEther("1"); // deposit 1 WETH
-      const compAPY = 1000; // some value for Compound APY
-      const aaveAPY = 900; // some value for Aave APY
-      await aggregator.connect(owner).deposit(amount, compAPY, aaveAPY);
-      // Add your own checks here
+  describe("exchange rates", function () {
+    it("fetches compound exchange rate", async function () {
+      // Fetch compound exchange rate
+      const compAPY = await aggregator.getCompoundAPY(cWETH.address);
+      console.log(compAPY.toString());
+      expect(compAPY).to.not.equal(0);
     });
 
-    it("Should rebalance WETH from Compound to Aave", async function () {
-      const compAPY = 900; // some value for Compound APY
-      const aaveAPY = 1000; // some value for Aave APY
-      await aggregator.connect(owner).rebalance(compAPY, aaveAPY);
-      // Add your own checks here
+    it("fetches aave exchange rate", async function () {
+      // Fetch Aave exchange rate
+      const aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
+      console.log(aaveAPY.toString());
+      expect(aaveAPY).to.not.equal(0);
+    });
+  });
+
+  describe("deposits", function () {
+    let amount = 10;
+    let amountInWei = ethers.utils.parseEther(amount.toString());
+    let compAPY, aaveAPY;
+    let result;
+
+    describe("success", function () {
+      beforeEach(async function () {
+        // Fetch compound exchange rate
+        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+
+        // Fetch Aave exchange rate
+        aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
+
+        // Approve WETH transfer to aggregator
+        await weth.connect(owner).approve(aggregator.address, amountInWei);
+
+        // Deposit WETH to aggregator
+        result = await aggregator
+          .connect(owner)
+          .deposit(amountInWei, compAPY, aaveAPY);
+      });
+
+      it("tracks the WETH amount", async function () {
+        // Check WETH balance in the aggregator
+        const balance = await aggregator.amountDeposited();
+        expect(balance).to.equal(amountInWei);
+      });
+
+      it("tracks where WETH is stored", async function () {
+        const locationOfFunds = await aggregator.balanceWhere();
+        console.log(locationOfFunds);
+      });
+
+      it("emits deposit event", async function () {
+        const receipt = await result.wait();
+        const log = receipt.events.find((event) => event.event === "Deposit");
+        expect(log).to.not.be.undefined;
+      });
     });
 
-    it("Should allow withdrawal of deposited WETH", async function () {
-      await aggregator.connect(owner).withdraw();
-      // Add your own checks here
+    describe("failure", function () {
+      it("fails when transfer is not approved", async function () {
+        await expect(
+          aggregator.connect(owner).deposit(amountInWei, compAPY, aaveAPY)
+        ).to.be.revertedWith(
+          "VM Exception while processing transaction: revert"
+        );
+      });
+
+      it("fails when amount is 0", async function () {
+        await expect(
+          aggregator.connect(owner).deposit(0, compAPY, aaveAPY)
+        ).to.be.revertedWith(
+          "VM Exception while processing transaction: revert"
+        );
+      });
+    });
+  });
+
+  describe("withdraws", function () {
+    let amount = 10;
+    let amountInWei = ethers.utils.parseEther(amount.toString());
+    let compAPY, aaveAPY;
+    let result;
+
+    describe("success", function () {
+      beforeEach(async function () {
+        // Fetch compound exchange rate
+        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+
+        // Fetch Aave exchange rate
+        aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
+
+        // Approve WETH transfer to aggregator
+        await weth.connect(owner).approve(aggregator.address, amountInWei);
+
+        // Deposit WETH to aggregator
+        await aggregator.connect(owner).deposit(amountInWei, compAPY, aaveAPY);
+
+        // Withdraw WETH from aggregator
+        result = await aggregator.connect(owner).withdraw();
+      });
+
+      it("emits withdraw event", async function () {
+        const receipt = await result.wait();
+        const log = receipt.events.find((event) => event.event === "Withdraw");
+        expect(log).to.not.be.undefined;
+      });
+
+      it("updates the user contract balance", async function () {
+        const balance = await aggregator.amountDeposited();
+        expect(balance).to.equal(ethers.constants.Zero);
+      });
     });
 
-    it("Should fail when a non-owner tries to deposit", async function () {
-      const amount = ethers.utils.parseEther("1"); // deposit 1 WETH
-      const compAPY = 1000; // some value for Compound APY
-      const aaveAPY = 900; // some value for Aave APY
-      await expect(
-        aggregator.connect(anotherAccount).deposit(amount, compAPY, aaveAPY)
-      ).to.be.revertedWith("Only the owner can call this function.");
+    describe("failure", function () {
+      it("fails if user has no balance", async function () {
+        await expect(aggregator.connect(owner).withdraw()).to.be.revertedWith(
+          "VM Exception while processing transaction: revert"
+        );
+      });
+
+      it("fails if a different user attempts to withdraw", async function () {
+        await expect(aggregator.connect(user2).withdraw()).to.be.revertedWith(
+          "VM Exception while processing transaction: revert"
+        );
+      });
+    });
+  });
+
+  describe("rebalance", function () {
+    let compAPY, aaveAPY;
+
+    describe("failure", function () {
+      beforeEach(async function () {
+        // Fetch compound exchange rate
+        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+
+        // Fetch Aave exchange rate
+        aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
+      });
+
+      it("fails if user has no balance", async function () {
+        await expect(
+          aggregator.connect(owner).rebalance(compAPY, aaveAPY)
+        ).to.be.revertedWith(
+          "VM Exception while processing transaction: revert"
+        );
+      });
     });
   });
 });
