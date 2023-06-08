@@ -28,10 +28,10 @@ describe("Aggregator", function () {
       "aWETH",
       "0x030bA81f1c18d280636F32af80b9AAd02Cf0854e"
     ); // Replace with the deployed aWETH contract address
-    AaveLendingPool = await ethers.getContractAt(
+    aaveLendingPool = await ethers.getContractAt(
       "AaveLendingPool",
       "0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9"
-    ); // Replace with the deployed aave Lending Pool contract address
+    ); // Replace with the deployed Aave Lending Pool contract address
 
     aggregator = await Aggregator.deploy();
     await aggregator.deployed();
@@ -46,7 +46,7 @@ describe("Aggregator", function () {
   describe("exchange rates", function () {
     it("fetches compound exchange rate", async function () {
       // Fetch compound exchange rate
-      const compAPY = await aggregator.getCompoundAPY(cWETH.address);
+      const compAPY = await aggregator.getCompoundAPY();
       console.log(compAPY.toString());
       expect(compAPY).to.not.equal(0);
     });
@@ -68,7 +68,7 @@ describe("Aggregator", function () {
     describe("success", function () {
       beforeEach(async function () {
         // Fetch compound exchange rate
-        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+        compAPY = await aggregator.getCompoundAPY();
 
         // Fetch Aave exchange rate
         aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
@@ -104,17 +104,13 @@ describe("Aggregator", function () {
       it("fails when transfer is not approved", async function () {
         await expect(
           aggregator.connect(owner).deposit(amountInWei, compAPY, aaveAPY)
-        ).to.be.revertedWith(
-          "VM Exception while processing transaction: revert"
-        );
+        ).to.be.revertedWith("Failed to approve WETH for Compound.");
       });
 
       it("fails when amount is 0", async function () {
         await expect(
           aggregator.connect(owner).deposit(0, compAPY, aaveAPY)
-        ).to.be.revertedWith(
-          "VM Exception while processing transaction: revert"
-        );
+        ).to.be.revertedWith("Deposit amount must be greater than zero.");
       });
     });
   });
@@ -128,7 +124,7 @@ describe("Aggregator", function () {
     describe("success", function () {
       beforeEach(async function () {
         // Fetch compound exchange rate
-        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+        compAPY = await aggregator.getCompoundAPY();
 
         // Fetch Aave exchange rate
         aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
@@ -158,13 +154,13 @@ describe("Aggregator", function () {
     describe("failure", function () {
       it("fails if user has no balance", async function () {
         await expect(aggregator.connect(owner).withdraw()).to.be.revertedWith(
-          "VM Exception while processing transaction: revert"
+          "No funds available for withdrawal."
         );
       });
 
       it("fails if a different user attempts to withdraw", async function () {
         await expect(aggregator.connect(user2).withdraw()).to.be.revertedWith(
-          "VM Exception while processing transaction: revert"
+          "Only the owner can call this function."
         );
       });
     });
@@ -176,7 +172,7 @@ describe("Aggregator", function () {
     describe("failure", function () {
       beforeEach(async function () {
         // Fetch compound exchange rate
-        compAPY = await aggregator.getCompoundAPY(cWeth.address);
+        compAPY = await aggregator.getCompoundAPY();
 
         // Fetch Aave exchange rate
         aaveAPY = await aggregator.getAaveAPY(aaveLendingPool.address);
@@ -185,9 +181,7 @@ describe("Aggregator", function () {
       it("fails if user has no balance", async function () {
         await expect(
           aggregator.connect(owner).rebalance(compAPY, aaveAPY)
-        ).to.be.revertedWith(
-          "VM Exception while processing transaction: revert"
-        );
+        ).to.be.revertedWith("No funds available for rebalance.");
       });
     });
   });

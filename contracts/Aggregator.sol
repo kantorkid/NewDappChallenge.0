@@ -22,15 +22,18 @@ interface cWETH {
 
     function redeem(uint256 redeemTokens) external returns (uint256);
 
-    function supplyRatePerBlock() external returns (uint256);
+    function supplyRatePerBlock() external view returns (uint256);
 
     function balanceOf(address account) external view returns (uint256);
 }
+
 
 interface aWETH {
     function balanceOf(address account) external view returns (uint256);
 }
 
+// Interface for Aave's lending pool contract
+// Interface for Aave's lending pool contract
 // Interface for Aave's lending pool contract
 interface AaveLendingPool {
     function deposit(
@@ -64,6 +67,7 @@ interface AaveLendingPool {
         );
 }
 
+
 contract Aggregator {
     using SafeMath for uint256;
 
@@ -76,8 +80,7 @@ contract Aggregator {
     WETH weth = WETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); // WETH contract address
     cWETH cWeth = cWETH(0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5); // cWETH contract address
     aWETH aWeth = aWETH(0x030bA81f1c18d280636F32af80b9AAd02Cf0854e); // aWETH contract address
-    AaveLendingPool aaveLendingPool =
-        AaveLendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9);
+    AaveLendingPool aaveLendingPool = AaveLendingPool(0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9); // Aave lending pool contract address
 
     // Events
     event Deposit(address owner, uint256 amount, address depositTo);
@@ -173,10 +176,7 @@ contract Aggregator {
             locationOfFunds = address(cWeth);
 
             emit Rebalance(msg.sender, amountDeposited, locationOfFunds);
-        } else if (
-            (_aaveAPY > _compAPY) &&
-            (locationOfFunds != address(aaveLendingPool))
-        ) {
+        } else if ((_aaveAPY > _compAPY) && (locationOfFunds != address(aaveLendingPool))) {
             // If aaveRate is greater than compoundRate, and the current
             // location of user funds is not in aave, then we transfer funds.
 
@@ -191,6 +191,22 @@ contract Aggregator {
 
             emit Rebalance(msg.sender, amountDeposited, locationOfFunds);
         }
+    }
+
+    function getCompoundAPY() public view returns (uint256) {
+        uint256 supplyRatePerBlock = cWeth.supplyRatePerBlock();
+        uint256 blocksPerDay = 5760; // Assuming 15 seconds per block
+        uint256 daysPerYear = 365;
+        uint256 compAPY = ((supplyRatePerBlock * blocksPerDay + 1e18) ** daysPerYear) - 1e18;
+        return compAPY;
+    }
+
+    function getAaveAPY(address _reserve) public view returns (uint256) {
+        uint256 liquidityRate = aaveLendingPool.getReserveData(_reserve).liquidityRate;
+        uint256 blocksPerDay = 5760; // Assuming 15 seconds per block
+        uint256 daysPerYear = 365;
+        uint256 aaveAPY = ((liquidityRate + 1e18) ** daysPerYear) - 1e18;
+        return aaveAPY;
     }
 
     function _depositToCompound(uint256 _amount) internal returns (uint256) {

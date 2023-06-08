@@ -216,6 +216,86 @@
       "artifacts": [
         "IERC20Metadata"
       ]
+    },
+    "/Users/jakekantor/NewDappChallenge/contracts/Aggregator.sol": {
+      "lastModificationDate": 1686207778056,
+      "contentHash": "d04d875ee103cdc09716db13613c0d3a",
+      "sourceName": "contracts/Aggregator.sol",
+      "solcConfig": {
+        "version": "0.8.4",
+        "settings": {
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/utils/math/SafeMath.sol",
+        "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "AaveLendingPool",
+        "Aggregator",
+        "WETH",
+        "aWETH",
+        "cWETH"
+      ]
+    },
+    "/Users/jakekantor/NewDappChallenge/contracts/WETHMock.sol": {
+      "lastModificationDate": 1686204683716,
+      "contentHash": "fdbec1fceb27c84449908c4106f85a49",
+      "sourceName": "contracts/WETHMock.sol",
+      "solcConfig": {
+        "version": "0.8.4",
+        "settings": {
+          "optimizer": {
+            "enabled": false,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+        "@openzeppelin/contracts/utils/math/SafeMath.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.0"
+      ],
+      "artifacts": [
+        "WETHMock"
+      ]
     }
   }
 }
